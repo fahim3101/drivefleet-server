@@ -1,10 +1,10 @@
-// DriveFleet Server v3
+// DriveFleet Server v4
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -29,25 +29,33 @@ app.get('/', (req, res) => {
 });
 
 const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri);
 
-let db;
 let carsCollection;
 let bookingsCollection;
 
 async function connectDB() {
   try {
-    const client = new MongoClient(uri);
-    await client.connect();
-    db = client.db('drivefleet');
-    carsCollection = db.collection('cars');
-    bookingsCollection = db.collection('bookings');
-    console.log('MongoDB connected!');
+    if (!carsCollection) {
+      await client.connect();
+      const db = client.db('drivefleet');
+      carsCollection = db.collection('cars');
+      bookingsCollection = db.collection('bookings');
+      console.log('MongoDB connected!');
+    }
   } catch (err) {
     console.error('MongoDB error:', err);
   }
 }
 
 connectDB();
+
+app.use(async (req, res, next) => {
+  if (!carsCollection) {
+    await connectDB();
+  }
+  next();
+});
 
 const verifyToken = (req, res, next) => {
   const token = req.cookies?.token;
