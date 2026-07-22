@@ -2,7 +2,7 @@
 
 A production-grade **REST API** that powers the DriveFleet car rental marketplace. Built with **Node.js**, **Express**, and **MongoDB Atlas**, it handles authentication, car listings, search, filtering, and booking workflows behind JWT-secured endpoints.
 
-> **Frontend Repo:** [`drivefleet-client`](../drivefleet-client)
+> **Frontend Repo:** [github.com/fahim3101/drivefleet-client](https://github.com/fahim3101/drivefleet-client)
 > **Live API:** [https://drivefleet-server-orpin.vercel.app](https://drivefleet-server-orpin.vercel.app/)
 > **Live Site:** [https://drivefleet-client-nine.vercel.app](https://drivefleet-client-nine.vercel.app/)
 
