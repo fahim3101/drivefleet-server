@@ -435,4 +435,21 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Made with ❤️ by [Fahim](https://github.com/fahim3101)**
+## 📬 Contact
+
+Have questions, feedback, or partnership ideas? Reach out:
+
+- 📱 **Phone / WhatsApp:** [+8801818858015](tel:+8801818858015)
+- 📧 **Email:** [fahimrana3101@gmail.com](mailto:fahimrana3101@gmail.com)
+
+## 🌐 Follow Me
+
+Stay connected and follow my journey:
+
+- 💼 **LinkedIn:** [linkedin.com/in/fahim-rana](https://www.linkedin.com/in/fahim-rana/)
+- 📘 **Facebook:** [facebook.com/fahim2855](https://www.facebook.com/fahim2855)
+- 📸 **Instagram:** [instagram.com/_fahiiiim_](https://www.instagram.com/_fahiiiim_/)
+
+---
+
+**Made with ❤️ by [Fahim Rana](https://github.com/fahim3101)**
