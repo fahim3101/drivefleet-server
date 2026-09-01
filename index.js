@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const nodemailer = require('nodemailer');
 const { MongoClient, ObjectId } = require('mongodb');
 
 const app = express();
@@ -113,6 +114,80 @@ const validateCarPayload = (body) => {
     errors.push('seatCapacity must be between 1 and 50');
   if (!body.pickupLocation || typeof body.pickupLocation !== 'string') errors.push('pickupLocation is required');
   return errors;
+};
+
+// ── Email Service (Nodemailer) ────────────────────────────
+let transporter = null;
+if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  transporter.verify((err) => {
+    if (err) console.error('📧 SMTP verify failed:', err.message);
+    else console.log('📧 SMTP ready');
+  });
+} else {
+  console.log('📧 SMTP not configured - booking emails will be logged to console (mock mode)');
+}
+
+const sendBookingEmail = async ({ to, carName, totalPrice, startDate, endDate, driverNeeded }) => {
+  const subject = `✅ DriveFleet - Booking Confirmed: ${carName}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0f0f1a;color:#fff;padding:24px;border-radius:12px">
+      <h2 style="color:#E63946">🎉 Booking Confirmed!</h2>
+      <p>Hi there,</p>
+      <p>Your booking for <strong>${carName}</strong> has been confirmed.</p>
+      <table style="width:100%;background:#16213E;border-radius:8px;padding:12px;margin:16px 0">
+        <tr><td style="color:#999">Car</td><td><strong>${carName}</strong></td></tr>
+        <tr><td style="color:#999">Total</td><td style="color:#E63946;font-weight:bold">$${totalPrice}</td></tr>
+        ${startDate ? `<tr><td style="color:#999">Dates</td><td>${new Date(startDate).toLocaleDateString()} → ${endDate ? new Date(endDate).toLocaleDateString() : 'N/A'}</td></tr>` : ''}
+        <tr><td style="color:#999">Driver</td><td>${driverNeeded}</td></tr>
+      </table>
+      <p>We’ll contact you shortly with pickup details. Thank you for choosing <strong>DriveFleet</strong>!</p>
+      <p style="color:#666;font-size:12px;margin-top:24px">This is an automated email, please do not reply.</p>
+    </div>
+  `;
+  const text = `Booking Confirmed: ${carName} | Total: $${totalPrice} | Dates: ${startDate || 'N/A'} -> ${endDate || 'N/A'} | Driver: ${driverNeeded}`;
+
+  if (!transporter) {
+    console.log(`📧 [MOCK EMAIL] To: ${to} | Subject: ${subject} | ${text}`);
+    return { mocked: true };
+  }
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+    console.log(`📧 Email sent to ${to} for ${carName}`);
+    return { sent: true };
+  } catch (err) {
+    console.error('📧 Email send failed:', err.message);
+    return { error: err.message };
+  }
+};
+
+const sendCancellationEmail = async ({ to, carName }) => {
+  const subject = `❌ DriveFleet - Booking Cancelled: ${carName}`;
+  const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0f0f1a;color:#fff;padding:24px;border-radius:12px"><h2 style="color:#E63946">Booking Cancelled</h2><p>Your booking for <strong>${carName}</strong> has been cancelled.</p><p>If this was a mistake, please book again on DriveFleet.</p><p style="color:#666;font-size:12px;margin-top:24px">This is an automated email.</p></div>`;
+  const text = `Booking Cancelled: ${carName}`;
+  if (!transporter) {
+    console.log(`📧 [MOCK CANCEL EMAIL] To: ${to} | ${text}`);
+    return { mocked: true };
+  }
+  try {
+    await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, text, html });
+    console.log(`📧 Cancellation email sent to ${to}`);
+    return { sent: true };
+  } catch (err) {
+    console.error('📧 Cancel email failed:', err.message);
+    return { error: err.message };
+  }
 };
 
 // ── Auth Routes ──────────────────────────────────────────
@@ -344,6 +419,21 @@ app.post('/bookings', verifyToken, async (req, res, next) => {
 
     const result = await bookingsCollection.insertOne(booking);
     await carsCollection.updateOne({ _id: new ObjectId(carId) }, { $inc: { bookingCount: 1 } });
+
+    // Send confirmation email (non-blocking but await for logging)
+    try {
+      await sendBookingEmail({
+        to: booking.userEmail,
+        carName: booking.carName,
+        totalPrice: booking.totalPrice || booking.dailyRentPrice,
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        driverNeeded: booking.driverNeeded,
+      });
+    } catch (e) {
+      console.error('Email error:', e.message);
+    }
+
     res.status(201).send(result);
   } catch (err) {
     next(err);
@@ -373,6 +463,11 @@ app.delete('/bookings/:id', verifyToken, async (req, res, next) => {
     // Decrement bookingCount
     if (booking.carId && isValidObjectId(booking.carId)) {
       await carsCollection.updateOne({ _id: new ObjectId(booking.carId) }, { $inc: { bookingCount: -1 } });
+    }
+    try {
+      await sendCancellationEmail({ to: booking.userEmail, carName: booking.carName });
+    } catch (e) {
+      console.error('Cancel email error:', e.message);
     }
     res.send(result);
   } catch (err) {
