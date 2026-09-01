@@ -380,6 +380,37 @@ app.delete('/bookings/:id', verifyToken, async (req, res, next) => {
   }
 });
 
+// ── Admin Routes ─────────────────────────────────────────
+app.get('/admin/stats', verifyToken, async (req, res, next) => {
+  try {
+    const totalCars = await carsCollection.countDocuments();
+    const totalBookings = await bookingsCollection.countDocuments();
+    const availableCars = await carsCollection.countDocuments({ availabilityStatus: 'Available' });
+    const unavailableCars = totalCars - availableCars;
+    const recentCars = await carsCollection.find().sort({ _id: -1 }).limit(5).toArray();
+    const recentBookings = await bookingsCollection.find().sort({ bookingDate: -1 }).limit(5).toArray();
+    const carsByType = await carsCollection.aggregate([{ $group: { _id: '$carType', count: { $sum: 1 } } }]).toArray();
+    const revenueAgg = await bookingsCollection.aggregate([{ $group: { _id: null, total: { $sum: '$totalPrice' } } }]).toArray();
+    const totalRevenue = revenueAgg[0]?.total || 0;
+    // Monthly bookings last 6 months
+    const monthlyBookings = await bookingsCollection
+      .aggregate([
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m', date: '$bookingDate' } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $limit: 6 },
+      ])
+      .toArray();
+    res.send({ totalCars, totalBookings, availableCars, unavailableCars, recentCars, recentBookings, carsByType, totalRevenue, monthlyBookings });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Global Error Handler ─────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('🔥 Error:', err.message);
