@@ -244,7 +244,6 @@ app.post('/admin/login', (req, res) => {
   if (!adminPass) return res.status(500).send({ message: 'ADMIN_PASS not configured' });
   if (!password) return res.status(400).send({ message: 'Password required' });
   if (password !== adminPass) return res.status(401).send({ message: 'Invalid admin password' });
-  // Also set a short-lived admin cookie for extra verification (optional)
   const adminToken = jwt.sign({ role: 'admin', email: process.env.ADMIN_EMAIL }, process.env.JWT_SECRET, { expiresIn: '2h' });
   res
     .cookie('adminToken', adminToken, {
@@ -256,14 +255,32 @@ app.post('/admin/login', (req, res) => {
     .send({ success: true, message: 'Admin authenticated' });
 });
 
+// Direct admin login WITHOUT Firebase - email + pass check
+app.post('/admin/direct-login', (req, res) => {
+  const { email, password } = req.body;
+  const adminEmailEnv = process.env.ADMIN_EMAIL;
+  const adminPass = process.env.ADMIN_PASS;
+  if (!adminEmailEnv || !adminPass) return res.status(500).send({ message: 'Admin credentials not configured' });
+  if (!email || !password) return res.status(400).send({ message: 'Email and password required' });
+  const allowed = adminEmailEnv.split(',').map((e) => e.trim().toLowerCase());
+  if (!allowed.includes(email.toLowerCase())) return res.status(401).send({ message: 'Invalid admin email' });
+  if (password !== adminPass) return res.status(401).send({ message: 'Invalid admin password' });
+  const token = jwt.sign({ email, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  const adminToken = jwt.sign({ email, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '2h' });
+  res
+    .cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 7 * 24 * 60 * 60 * 1000 })
+    .cookie('adminToken', adminToken, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 2 * 60 * 60 * 1000 })
+    .send({ success: true, message: 'Direct admin login successful' });
+});
+
 app.post('/admin/logout', (req, res) => {
-  res.clearCookie('adminToken', { httpOnly: true, secure: true, sameSite: 'none' }).send({ success: true });
+  res.clearCookie('adminToken', { httpOnly: true, secure: true, sameSite: 'none' }).clearCookie('token', { httpOnly: true, secure: true, sameSite: 'none' }).send({ success: true });
 });
 
 app.get('/admin/check', verifyToken, (req, res) => {
-  const isAdmin = req.user.email === process.env.ADMIN_EMAIL;
+  const allowed = (process.env.ADMIN_EMAIL || '').split(',').map((e) => e.trim().toLowerCase());
+  const isAdmin = allowed.includes(req.user.email.toLowerCase());
   const hasAdminPass = !!req.cookies?.adminToken;
-  // For MVP, email whitelist is primary; adminToken is optional extra
   res.send({ isAdmin, hasAdminPass, adminEmail: process.env.ADMIN_EMAIL });
 });
 
