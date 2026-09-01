@@ -107,9 +107,10 @@ const verifyToken = (req, res, next) => {
 };
 
 const verifyAdmin = (req, res, next) => {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) return res.status(500).send({ message: 'ADMIN_EMAIL not configured on server' });
-  if (req.user.email !== adminEmail) return res.status(403).send({ message: 'Forbidden: Admin email required' });
+  const adminEmailEnv = process.env.ADMIN_EMAIL;
+  if (!adminEmailEnv) return res.status(500).send({ message: 'ADMIN_EMAIL not configured on server' });
+  const allowedEmails = adminEmailEnv.split(',').map((e) => e.trim().toLowerCase());
+  if (!allowedEmails.includes(req.user.email.toLowerCase())) return res.status(403).send({ message: 'Forbidden: Admin email required' });
   const adminToken = req.cookies?.adminToken;
   if (!adminToken) return res.status(403).send({ message: 'Admin password required. Please login at /admin/login' });
   jwt.verify(adminToken, process.env.JWT_SECRET, (err, decoded) => {
