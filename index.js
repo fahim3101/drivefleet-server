@@ -638,6 +638,119 @@ app.get('/admin/stats', verifyToken, verifyAdmin, async (req, res, next) => {
   }
 });
 
+// ── Admin Control: All Data ─────────────────────────────────
+app.get('/admin/cars', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const { search, page = 1, limit = 20 } = req.query;
+    let query = {};
+    if (search) query.carName = { $regex: escapeRegex(search), $options: 'i' };
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, parseInt(limit) || 20);
+    const skip = (pageNum - 1) * limitNum;
+    const total = await carsCollection.countDocuments(query);
+    const cars = await carsCollection.find(query).sort({ _id: -1 }).skip(skip).limit(limitNum).toArray();
+    res.send({ cars, total, page: pageNum, totalPages: Math.ceil(total / limitNum) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/admin/cars/:id', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).send({ message: 'Invalid car ID' });
+    const result = await carsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).send({ message: 'Car not found' });
+    // Also delete related bookings and reviews for cleanup (optional)
+    await bookingsCollection.deleteMany({ carId: id });
+    await reviewsCollection.deleteMany({ carId: id });
+    res.send({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.put('/admin/cars/:id/toggle', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).send({ message: 'Invalid car ID' });
+    const car = await carsCollection.findOne({ _id: new ObjectId(id) });
+    if (!car) return res.status(404).send({ message: 'Car not found' });
+    const newStatus = car.availabilityStatus === 'Available' ? 'Unavailable' : 'Available';
+    const result = await carsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { availabilityStatus: newStatus } });
+    res.send({ success: true, newStatus, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/admin/bookings', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const bookings = await bookingsCollection.find().sort({ bookingDate: -1 }).limit(100).toArray();
+    res.send(bookings);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/admin/bookings/:id', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).send({ message: 'Invalid booking ID' });
+    const booking = await bookingsCollection.findOne({ _id: new ObjectId(id) });
+    if (!booking) return res.status(404).send({ message: 'Booking not found' });
+    const result = await bookingsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (booking.carId && isValidObjectId(booking.carId)) {
+      await carsCollection.updateOne({ _id: new ObjectId(booking.carId) }, { $inc: { bookingCount: -1 } });
+    }
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/admin/reviews', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const reviews = await reviewsCollection.find().sort({ createdAt: -1 }).limit(100).toArray();
+    res.send(reviews);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/admin/reviews/:id', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).send({ message: 'Invalid review ID' });
+    const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).send({ message: 'Review not found' });
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/admin/users', verifyToken, verifyAdmin, async (req, res, next) => {
+  try {
+    const carOwners = await carsCollection.distinct('ownerEmail');
+    const bookers = await bookingsCollection.distinct('userEmail');
+    const reviewers = await reviewsCollection.distinct('userEmail');
+    const all = [...new Set([...carOwners, ...bookers, ...reviewers])].filter(Boolean);
+    const users = await Promise.all(
+      all.map(async (email) => {
+        const carCount = await carsCollection.countDocuments({ ownerEmail: email });
+        const bookingCount = await bookingsCollection.countDocuments({ userEmail: email });
+        const reviewCount = await reviewsCollection.countDocuments({ userEmail: email });
+        return { email, carCount, bookingCount, reviewCount, total: carCount + bookingCount + reviewCount };
+      })
+    );
+    users.sort((a, b) => b.total - a.total);
+    res.send(users);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── Global Error Handler ─────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('🔥 Error:', err.message);
