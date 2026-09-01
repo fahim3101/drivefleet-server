@@ -6,6 +6,8 @@ A production-grade **REST API** that powers the DriveFleet car rental marketplac
 > **Live API:** [https://drivefleet-server-orpin.vercel.app](https://drivefleet-server-orpin.vercel.app/)
 > **Live Site:** [https://drivefleet-client-nine.vercel.app](https://drivefleet-client-nine.vercel.app/)
 
+> **🆕 MVP Update Sep 2026:** Date overlap conflict prevention, payment fields (paymentStatus/transactionId), Reviews collection (POST/GET/DELETE), Admin stats aggregations, Email notifications (Nodemailer), Helmet/RateLimit, Indexes, Pagination & sorting.
+
 ---
 
 ## 📑 Table of Contents
