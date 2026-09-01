@@ -106,6 +106,19 @@ const verifyToken = (req, res, next) => {
   });
 };
 
+const verifyAdmin = (req, res, next) => {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail) return res.status(500).send({ message: 'ADMIN_EMAIL not configured on server' });
+  if (req.user.email !== adminEmail) return res.status(403).send({ message: 'Forbidden: Admin email required' });
+  const adminToken = req.cookies?.adminToken;
+  if (!adminToken) return res.status(403).send({ message: 'Admin password required. Please login at /admin/login' });
+  jwt.verify(adminToken, process.env.JWT_SECRET, (err, decoded) => {
+    if (err || decoded.role !== 'admin') return res.status(403).send({ message: 'Invalid admin session. Please re-login.' });
+    req.admin = decoded;
+    next();
+  });
+};
+
 // Validation helpers
 const validateCarPayload = (body) => {
   const errors = [];
@@ -221,6 +234,36 @@ app.post('/logout', (req, res) => {
       sameSite: 'none',
     })
     .send({ success: true });
+});
+
+// ── Admin Auth ───────────────────────────────────────────
+app.post('/admin/login', (req, res) => {
+  const { password } = req.body;
+  const adminPass = process.env.ADMIN_PASS;
+  if (!adminPass) return res.status(500).send({ message: 'ADMIN_PASS not configured' });
+  if (!password) return res.status(400).send({ message: 'Password required' });
+  if (password !== adminPass) return res.status(401).send({ message: 'Invalid admin password' });
+  // Also set a short-lived admin cookie for extra verification (optional)
+  const adminToken = jwt.sign({ role: 'admin', email: process.env.ADMIN_EMAIL }, process.env.JWT_SECRET, { expiresIn: '2h' });
+  res
+    .cookie('adminToken', adminToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 2 * 60 * 60 * 1000,
+    })
+    .send({ success: true, message: 'Admin authenticated' });
+});
+
+app.post('/admin/logout', (req, res) => {
+  res.clearCookie('adminToken', { httpOnly: true, secure: true, sameSite: 'none' }).send({ success: true });
+});
+
+app.get('/admin/check', verifyToken, (req, res) => {
+  const isAdmin = req.user.email === process.env.ADMIN_EMAIL;
+  const hasAdminPass = !!req.cookies?.adminToken;
+  // For MVP, email whitelist is primary; adminToken is optional extra
+  res.send({ isAdmin, hasAdminPass, adminEmail: process.env.ADMIN_EMAIL });
 });
 
 // ── Cars Routes ──────────────────────────────────────────
@@ -553,7 +596,7 @@ app.delete('/reviews/:id', verifyToken, async (req, res, next) => {
 });
 
 // ── Admin Routes ─────────────────────────────────────────
-app.get('/admin/stats', verifyToken, async (req, res, next) => {
+app.get('/admin/stats', verifyToken, verifyAdmin, async (req, res, next) => {
   try {
     const totalCars = await carsCollection.countDocuments();
     const totalBookings = await bookingsCollection.countDocuments();
