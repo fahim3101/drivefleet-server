@@ -51,6 +51,7 @@ const client = new MongoClient(uri);
 
 let carsCollection;
 let bookingsCollection;
+let reviewsCollection;
 
 async function connectDB() {
   try {
@@ -59,6 +60,7 @@ async function connectDB() {
       const db = client.db('drivefleet');
       carsCollection = db.collection('cars');
       bookingsCollection = db.collection('bookings');
+      reviewsCollection = db.collection('reviews');
       // Create indexes for performance
       try {
         await carsCollection.createIndex({ carName: 'text' });
@@ -66,6 +68,9 @@ async function connectDB() {
         await carsCollection.createIndex({ ownerEmail: 1 });
         await bookingsCollection.createIndex({ userEmail: 1 });
         await bookingsCollection.createIndex({ carId: 1 });
+        await bookingsCollection.createIndex({ startDate: 1, endDate: 1 });
+        await reviewsCollection.createIndex({ carId: 1 });
+        await reviewsCollection.createIndex({ userEmail: 1 });
       } catch (e) {
         // Index creation may fail if already exists - ignore
       }
@@ -485,6 +490,62 @@ app.delete('/bookings/:id', verifyToken, async (req, res, next) => {
     } catch (e) {
       console.error('Cancel email error:', e.message);
     }
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Reviews Routes ───────────────────────────────────────
+app.post('/reviews', verifyToken, async (req, res, next) => {
+  try {
+    const { carId, rating, comment } = req.body;
+    if (!carId || !isValidObjectId(carId)) return res.status(400).send({ message: 'Valid carId required' });
+    if (!rating || isNaN(Number(rating)) || Number(rating) < 1 || Number(rating) > 5) return res.status(400).send({ message: 'Rating must be 1-5' });
+    const car = await carsCollection.findOne({ _id: new ObjectId(carId) });
+    if (!car) return res.status(404).send({ message: 'Car not found' });
+
+    // Optional: check user has booked this car
+    // const hasBooked = await bookingsCollection.findOne({ carId, userEmail: req.user.email });
+    // if (!hasBooked) return res.status(403).send({ message: 'You must book this car to review' });
+
+    const review = {
+      carId,
+      carName: car.carName,
+      rating: Number(rating),
+      comment: (comment || '').trim().slice(0, 500),
+      userEmail: req.user.email,
+      userName: req.body.userName || req.user.email,
+      userPhoto: req.body.userPhoto || '',
+      createdAt: new Date(),
+    };
+    const result = await reviewsCollection.insertOne(review);
+    res.status(201).send(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/reviews/:carId', async (req, res, next) => {
+  try {
+    const { carId } = req.params;
+    if (!isValidObjectId(carId)) return res.status(400).send({ message: 'Invalid carId' });
+    const reviews = await reviewsCollection.find({ carId }).sort({ createdAt: -1 }).toArray();
+    const avg = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : null;
+    res.send({ reviews, avg, count: reviews.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/reviews/:id', verifyToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).send({ message: 'Invalid review ID' });
+    const review = await reviewsCollection.findOne({ _id: new ObjectId(id) });
+    if (!review) return res.status(404).send({ message: 'Review not found' });
+    if (review.userEmail !== req.user.email) return res.status(403).send({ message: 'Forbidden: Not your review' });
+    const result = await reviewsCollection.deleteOne({ _id: new ObjectId(id) });
     res.send(result);
   } catch (err) {
     next(err);
