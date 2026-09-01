@@ -397,8 +397,21 @@ app.post('/bookings', verifyToken, async (req, res, next) => {
       if (start < new Date(new Date().setHours(0, 0, 0, 0))) return res.status(400).send({ message: 'Start date cannot be in the past' });
     }
 
-    // Prevent duplicate booking by same user for same car with same dates? Simple check - same carId and userEmail and not cancelled
-    // For now allow multiple but could check
+    // ── Booking conflict check: prevent overlapping dates for same car
+    if (startDate && endDate) {
+      const newStart = new Date(startDate);
+      const newEnd = new Date(endDate);
+      const conflict = await bookingsCollection.findOne({
+        carId,
+        startDate: { $lte: newEnd },
+        endDate: { $gte: newStart },
+      });
+      if (conflict) {
+        return res.status(409).send({
+          message: `Car already booked from ${new Date(conflict.startDate).toLocaleDateString()} to ${new Date(conflict.endDate).toLocaleDateString()}. Please choose different dates.`,
+        });
+      }
+    }
 
     const booking = {
       carId,
@@ -414,6 +427,9 @@ app.post('/bookings', verifyToken, async (req, res, next) => {
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       totalPrice: req.body.totalPrice ? Number(req.body.totalPrice) : undefined,
+      paymentStatus: req.body.paymentStatus || 'paid',
+      paymentMethod: req.body.paymentMethod || 'mock',
+      transactionId: req.body.transactionId || `txn_${Date.now()}`,
       bookingDate: new Date(),
     };
 
