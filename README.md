@@ -1,457 +1,238 @@
-# 🚗 DriveFleet — Premium Car Rental Platform (Server)
+<div align="center">
 
-A production-grade **REST API** that powers the DriveFleet car rental marketplace. Built with **Node.js**, **Express**, and **MongoDB Atlas**, it handles authentication, car listings, search, filtering, and booking workflows behind JWT-secured endpoints.
+# 🚗 DriveFleet — Server API
 
-> **Frontend Repo:** [github.com/fahim3101/drivefleet-client](https://github.com/fahim3101/drivefleet-client)
-> **Live API:** [https://drivefleet-server-orpin.vercel.app](https://drivefleet-server-orpin.vercel.app/)
-> **Live Site:** [https://drivefleet-client-nine.vercel.app](https://drivefleet-client-nine.vercel.app/)
+### *Stateless REST API — JWT in HTTPOnly Cookies, Marketplace Control*
 
-> **🆕 MVP Update Sep 2026:** Date overlap conflict prevention, payment fields (paymentStatus/transactionId), Reviews collection (POST/GET/DELETE), Admin stats aggregations, Email notifications (Nodemailer), Helmet/RateLimit, Indexes, Pagination & sorting.
+<p>
+  <img src="https://img.shields.io/badge/Node-18-339933?style=for-the-badge&logo=node.js" />
+  <img src="https://img.shields.io/badge/Express-4-000000?style=for-the-badge&logo=express" />
+  <img src="https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb" />
+  <img src="https://img.shields.io/badge/JWT-HTTPOnly-000000?style=for-the-badge&logo=jsonwebtokens" />
+  <img src="https://img.shields.io/badge/Deploy-Vercel-black?style=for-the-badge&logo=vercel" />
+</p>
 
----
+<p>
+  <a href="https://drivefleet-client-nine.vercel.app"><img src="https://img.shields.io/badge/Client_Live-Demo-black?style=for-the-badge" /></a>
+  <a href="https://drivefleet-server-orpin.vercel.app"><img src="https://img.shields.io/badge/API_Live-Running-success?style=for-the-badge" /></a>
+  <a href="https://github.com/fahim3101/drivefleet-client"><img src="https://img.shields.io/badge/Frontend_Repo-Click-24292e?style=for-the-badge&logo=github" /></a>
+</p>
 
-## 📑 Table of Contents
+> **🆕 Sep 2026** — Overlap check • Payment fields • Reviews • Admin full control (all cars/bookings/reviews/users) • Email (Nodemailer) • Helmet/RateLimit • Indexes • Pagination/sorting • Fallback ADMIN fr87817833@gmail.com
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Getting Started](#-getting-started)
-- [Environment Variables](#-environment-variables)
-- [Available Scripts](#-available-scripts)
-- [API Reference](#-api-reference)
-  - [Auth](#-authentication)
-  - [Cars](#-cars)
-  - [Bookings](#-bookings)
-- [Data Models](#-data-models)
-- [Security](#-security)
-- [Deployment](#-deployment)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
-- [License](#-license)
+</div>
 
 ---
 
 ## 🧭 Overview
 
-DriveFleet Server is a stateless JSON API that follows RESTful conventions. It uses **MongoDB native driver** (no Mongoose) for maximum control and minimal overhead, and issues **JWTs** stored in **HTTPOnly cookies** so the frontend never has to handle tokens in JavaScript.
+```
+React (Vite)  ──HTTPOnly cookie──▶  Express  ──▶  MongoDB Atlas (cars, bookings, reviews)
+   ▲                                  │
+   └────────── JWT verify ◀────────────┘
+```
 
-```
-┌──────────────────┐    HTTPS + HTTPOnly Cookie    ┌──────────────────┐
-│  drivefleet-     │ ────────────────────────────▶ │  drivefleet-     │
-│  client (React)  │ ◀──────────────────────────── │  server (Node)   │
-└──────────────────┘      JSON response             └──────────────────┘
-                                                              │
-                                                              ▼
-                                                    ┌──────────────────┐
-                                                    │  MongoDB Atlas   │
-                                                    │  (cars, bookings)│
-                                                    └──────────────────┘
-```
+Stateless, single `index.js` (Vercel serverless), MongoDB native driver, no Mongoose.
 
 ---
 
 ## 🌟 Features
 
-- 🔐 **JWT Authentication** — signed tokens, 7-day expiry, stored in HTTPOnly cookies
-- 🚗 **Car CRUD** — list, create, update, delete with owner-scope authorization
-- 🔎 **Search & Filter** — case-insensitive regex search on car name + `$in` filter by car type
-- 📋 **Booking Workflow** — atomic `bookingCount` increment via `$inc`
-- 👤 **Owner-Scoped Routes** — users can only mutate their own cars & view their own bookings
-- 🛡️ **CORS Hardening** — explicit origin allow-list, `credentials: true`
-- ⚡ **Connection Caching** — single MongoClient instance, lazy-initialized
-- 🧩 **Stateless** — horizontally scalable; no in-memory session
+| Area | Detail |
+|------|--------|
+| **Auth** | `POST /jwt` → 7d JWT cookie (`httpOnly, Secure, SameSite=None`), `verifyToken` gate, `onAuthStateChanged` |
+| **Admin** | `ADMIN_EMAIL=fr87817833@gmail.com` whitelist, `ADMIN_PASS=admin123`, `verifyAdmin`, `POST /admin/direct-login` (Firebase bypass), fallback defaults if env missing |
+| **Cars** | CRUD, `ownerEmail` enforced from token, `GET /cars` pagination/sort/search, `PUT/DELETE` owner OR admin bypass via `/admin/cars/:id` |
+| **Bookings** | `POST /bookings` overlap check (409), `paymentStatus/transactionId`, `$inc bookingCount`, decrement on cancel, email mock |
+| **Reviews** | `reviews` collection, `POST/GET/:carId/DELETE` (own or admin), avg calc |
+| **Control** | `GET /admin/{cars,bookings,reviews,users}` + `DELETE` any + `PUT toggle` availability |
+| **Security** | Helmet, RateLimit 200/15m, `escapeRegex`, `isValidObjectId`, `cors` allow-list, indexes |
+| **Email** | Nodemailer — `SMTP_*` if set else `console.log [MOCK]` for booking/cancel |
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer            | Technology                       |
-| ---------------- | -------------------------------- |
-| **Runtime**      | Node.js ≥ 18                     |
-| **Framework**    | Express 4                        |
-| **Database**     | MongoDB Atlas (native driver v4) |
-| **Auth**         | `jsonwebtoken` (HS256)           |
-| **Cookies**      | `cookie-parser`                  |
-| **CORS**         | `cors` (with allow-list)         |
-| **Config**       | `dotenv`                         |
-| **Dev Tooling**  | `nodemon`                        |
-| **Deployment**   | Vercel (Serverless)              |
+| Layer | Tech |
+|-------|------|
+| Runtime | Node 18 + Express 4 |
+| DB | MongoDB Atlas native driver 4.1 + indexes (`carName text`, `carType`, `ownerEmail`, `userEmail`, `carId`, `reviews.carId`) |
+| Auth | jsonwebtoken HS256 |
+| Security | helmet, express-rate-limit, cookie-parser, cors |
+| Email | nodemailer 9 |
+| Deploy | Vercel `@vercel/node`, `vercel.json` |
 
 ---
 
-## 📁 Project Structure
+## 📁 Structure
 
 ```
 drivefleet-server/
-├── index.js                # Express app, routes, middleware
-├── vercel.json             # Vercel routing config
+├── index.js       # all routes/middleware (396→770 lines with admin)
+├── vercel.json    # { builds: @vercel/node, routes: /(.*) -> index.js }
 ├── .env.example
-├── .gitignore
-├── package.json
-└── README.md
+└── package.json   # helmet, express-rate-limit, nodemailer added
 ```
-
-> The entire API is a **single `index.js` file** for simplicity. For a larger project, split into `routes/`, `controllers/`, `middlewares/`, `db/`.
 
 ---
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Node.js** ≥ 18
-- **npm** ≥ 9
-- A **MongoDB Atlas** cluster (free M0 tier works) — or a local MongoDB instance
-- A long random string for `JWT_SECRET`
-
-### Installation
+## 🚀 Quick Start
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/fahim3101/drivefleet-server.git
 cd drivefleet-server
-
-# 2. Install dependencies
 npm install
-
-# 3. Configure environment
-cp .env.example .env
-# then fill in the values (see below)
-
-# 4. Start the dev server (auto-reload via nodemon)
-npm run dev
-
-# 5. Or run in production mode
-npm start
+cp .env.example .env  # fill
+npm run dev    # nodemon -> http://localhost:5000
+npm start      # prod
 ```
 
-The API will start on **http://localhost:5000** by default.
-
-Visit `http://localhost:5000/` — you should see `DriveFleet Server is Running!`.
+Visit `/` → `DriveFleet Server is Running! v5`
 
 ---
 
-## 🔑 Environment Variables
-
-Create a `.env` file in the project root (never commit this file):
+## 🔑 Env Vars
 
 ```env
-# Server port
 PORT=5000
+MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/drivefleet?retryWrites=true&w=majority
+JWT_SECRET=openssl rand -base64 32
+NODE_ENV=production
 
-# MongoDB connection string (from Atlas → Connect → Drivers)
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+SMTP_HOST=smtp.gmail.com  # optional
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=
 
-# JWT signing secret — use a long random string (e.g. `openssl rand -base64 32`)
-JWT_SECRET=replace-me-with-a-long-random-secret
-
-# Environment
-NODE_ENV=development
+ADMIN_EMAIL=fr87817833@gmail.com   # comma-separated for multiple
+ADMIN_PASS=admin123
 ```
 
-> 🔒 **Never** commit `.env` to version control. Rotate `JWT_SECRET` periodically and after any suspected leak.
-
----
-
-## 📜 Available Scripts
-
-| Command         | Description                                       |
-| --------------- | ------------------------------------------------- |
-| `npm start`     | Run the server with `node`                        |
-| `npm run dev`   | Run the server with `nodemon` (auto-reload)       |
+Fallback: if `ADMIN_*` missing, defaults to `fr87817833@gmail.com / admin123` so Vercel 500 fixed.
 
 ---
 
 ## 📡 API Reference
 
-Base URL: `http://localhost:5000` (dev) or your deployed URL.
+Base: `http://localhost:5000` or `https://drivefleet-server-orpin.vercel.app`
 
-All protected routes require a valid `token` HTTPOnly cookie issued by `POST /jwt`.
+### Auth
 
----
-
-### 🔐 Authentication
-
-#### `POST /jwt` — Issue JWT cookie
-**Access:** Public
-**Body:** `{ email: string }`
-**Response:** `{ success: true }` + sets `token` cookie
-
-```bash
-curl -X POST http://localhost:5000/jwt \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com"}' \
-  -c cookies.txt
-```
-
-#### `POST /logout` — Clear JWT cookie
-**Access:** Public
-**Response:** `{ success: true }` + clears `token` cookie
+| Method | Endpoint | Auth | Body | Resp |
+|--------|----------|------|------|------|
+| POST | `/jwt` | Public | `{email}` | `token` cookie |
+| POST | `/logout` | Public | — | clear cookie |
+| POST | `/admin/login` | Public | `{password}` | `adminToken` (needs prior JWT) |
+| POST | `/admin/direct-login` | Public | `{email,password}` | `token+adminToken` (Firebase bypass) |
+| POST | `/admin/logout` | — | — | clear admin |
+| GET | `/admin/check` | 🔒 | — | `{isAdmin, hasAdminPass}` |
 
 ```bash
-curl -X POST http://localhost:5000/logout -b cookies.txt -c cookies.txt
+curl -X POST http://localhost:5000/admin/direct-login -H "Content-Type: application/json" -d '{"email":"fr87817833@gmail.com","password":"admin123"}' -c cookies.txt
 ```
 
----
+### Cars
 
-### 🚗 Cars
+| Endpoint | Auth | Query/Body | Note |
+|----------|------|------------|------|
+| `GET /cars?search=&type=&sort=newest&page=1&limit=12` | Public | — | returns `{cars, total, page, totalPages}` |
+| `GET /cars/latest` | Public | — | 6 newest |
+| `GET /cars/:id` | Public | — | `isValidObjectId` |
+| `GET /my-cars?email=` | 🔒 | email==JWT | own |
+| `POST /cars` | 🔒 | `validateCarPayload` | `ownerEmail` forced from token |
+| `PUT /cars/:id` | 🔒 | whitelist | owner only |
+| `DELETE /cars/:id` | 🔒 | — | owner only |
 
-#### `GET /cars` — List all cars
-**Access:** Public
-**Query params:**
-- `search` *(optional)* — case-insensitive substring match on `carName`
-- `type` *(optional)* — filter by `carType` (use `all` to skip filter)
+**Admin Cars (bypass owner):**
+| `GET /admin/cars?search=&page=` | 👑 | — | all |
+| `DELETE /admin/cars/:id` | 👑 | — | + cleanup bookings/reviews |
+| `PUT /admin/cars/:id/toggle` | 👑 | — | flip Available |
 
-**Response:** `Car[]` (sorted newest first)
+### Bookings
 
-```bash
-curl "http://localhost:5000/cars?search=tesla&type=Electric"
-```
+| Endpoint | Auth | Body |
+|----------|------|------|
+| `POST /bookings` | 🔒 | `carId, carName, startDate, endDate, totalPrice, paymentMethod, transactionId` → overlap 409 → `$inc` → email |
+| `GET /bookings?email=` | 🔒 | own |
+| `DELETE /bookings/:id` | 🔒 | own → `$inc -1` → cancel email |
 
-#### `GET /cars/latest` — 6 newest cars
-**Access:** Public
-**Response:** `Car[]` (max 6)
+**Admin:** `GET /admin/bookings` (100), `DELETE /admin/bookings/:id` (any)
 
-```bash
-curl http://localhost:5000/cars/latest
-```
+### Reviews
 
-#### `GET /cars/:id` — Single car
-**Access:** Public
-**Response:** `Car`
+| `POST /reviews` | 🔒 | `carId, rating 1-5, comment` |
+| `GET /reviews/:carId` | Public | → `{reviews, avg, count}` |
+| `DELETE /reviews/:id` | 🔒 | own |
+| `GET /admin/reviews` | 👑 | all |
+| `DELETE /admin/reviews/:id` | 👑 | any |
 
-```bash
-curl http://localhost:5000/cars/68a1b2c3d4e5f6a7b8c9d0e1
-```
+### Admin Stats
 
-#### `GET /my-cars` — Owner's listings
-**Access:** 🔒 Protected
-**Query params:** `email` *(required — must match JWT)*
+`GET /admin/stats` 👑 → `{totalCars, totalBookings, availableCars, unavailableCars, recentCars, recentBookings, carsByType, totalRevenue, monthlyBookings}`
 
-```bash
-curl http://localhost:5000/my-cars?email=user@example.com \
-  -b cookies.txt
-```
-
-#### `POST /cars` — Add a car
-**Access:** 🔒 Protected
-**Body:** `Omit<Car, "_id" | "bookingCount" | "createdAt">`
-
-```bash
-curl -X POST http://localhost:5000/cars \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{
-    "carName": "Tesla Model 3",
-    "carType": "Electric",
-    "image": "https://...",
-    "price": 120,
-    "location": "Dhaka",
-    "description": "...",
-    "ownerName": "Fahim",
-    "ownerEmail": "user@example.com"
-  }'
-```
-
-#### `PUT /cars/:id` — Update a car
-**Access:** 🔒 Protected
-**Body:** Partial `Car` (the `_id` is stripped automatically)
-
-```bash
-curl -X PUT http://localhost:5000/cars/68a1b2c3d4e5f6a7b8c9d0e1 \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{"price": 130}'
-```
-
-#### `DELETE /cars/:id` — Delete a car
-**Access:** 🔒 Protected
-
-```bash
-curl -X DELETE http://localhost:5000/cars/68a1b2c3d4e5f6a7b8c9d0e1 \
-  -b cookies.txt
-```
-
----
-
-### 📋 Bookings
-
-#### `POST /bookings` — Create a booking
-**Access:** 🔒 Protected
-**Side effect:** atomically increments `bookingCount` on the corresponding car
-
-```bash
-curl -X POST http://localhost:5000/bookings \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{
-    "carId": "68a1b2c3d4e5f6a7b8c9d0e1",
-    "userName": "Fahim",
-    "userEmail": "user@example.com",
-    "startDate": "2026-08-01",
-    "endDate": "2026-08-05",
-    "needsDriver": true,
-    "notes": "Airport pickup"
-  }'
-```
-
-#### `GET /bookings` — User's bookings
-**Access:** 🔒 Protected
-**Query params:** `email` *(required — must match JWT)*
-**Response:** `Booking[]` (sorted newest first)
-
-```bash
-curl "http://localhost:5000/bookings?email=user@example.com" -b cookies.txt
-```
-
-#### `DELETE /bookings/:id` — Cancel a booking
-**Access:** 🔒 Protected
-
-```bash
-curl -X DELETE http://localhost:5000/bookings/68a1b2c3d4e5f6a7b8c9d0e2 \
-  -b cookies.txt
-```
+`GET /admin/users` 👑 → `[{email, carCount, bookingCount, reviewCount, total}]` sorted desc
 
 ---
 
 ## 🗄️ Data Models
 
-### `cars` collection
-
+**cars**
 ```js
-{
-  _id: ObjectId,
-  carName: String,         // e.g. "Tesla Model 3"
-  carType: String,         // e.g. "Electric" | "SUV" | "Sedan" | ...
-  image: String,           // image URL
-  price: Number,           // per day
-  location: String,
-  description: String,
-  ownerName: String,
-  ownerEmail: String,      // used for owner-scope checks
-  bookingCount: Number,    // default 0
-  createdAt: Date
-}
+{ _id, carName, carType, imageUrl, dailyRentPrice, seatCapacity, pickupLocation, description, availabilityStatus, ownerEmail, ownerName, ownerPhoto, bookingCount:0, createdAt }
 ```
 
-### `bookings` collection
-
+**bookings**
 ```js
-{
-  _id: ObjectId,
-  carId: String,           // references cars._id as string
-  userName: String,
-  userEmail: String,       // used for owner-scope checks
-  startDate: String,       // ISO date
-  endDate: String,         // ISO date
-  needsDriver: Boolean,
-  notes: String,
-  bookingDate: Date
-}
+{ _id, carId, carName, carImage, carType, dailyRentPrice, pickupLocation, userEmail, userName, driverNeeded, specialNote, startDate, endDate, totalPrice, paymentStatus, paymentMethod, transactionId, bookingDate }
+```
+
+**reviews**
+```js
+{ _id, carId, carName, rating 1-5, comment, userEmail, userName, userPhoto, createdAt }
 ```
 
 ---
 
 ## 🛡️ Security
 
-| Concern                | Mitigation                                                           |
-| ---------------------- | -------------------------------------------------------------------- |
-| XSS / token theft      | JWT stored in **HTTPOnly** cookie — JavaScript cannot read it        |
-| CSRF                   | `SameSite=None; Secure` — required for cross-site cookie on Vercel   |
-| Man-in-the-middle      | HTTPS only in production; `secure: true` flag on the cookie          |
-| Unauthorized mutation | `verifyToken` middleware on every protected route                    |
-| Cross-tenant access   | Email-match check: `req.user.email === req.query.email`              |
-| Open CORS              | Hard-coded `corsOptions.origin` allow-list                           |
-| Secret exposure       | Secrets in `.env`, file is `.gitignore`d                            |
-
-### Adding a new protected route
-
-```js
-app.post('/example', verifyToken, async (req, res) => {
-  // req.user is set by verifyToken
-  // ...your logic
-});
-```
+| Concern | Mitigation |
+|---------|------------|
+| XSS | HTTPOnly cookie |
+| CSRF | SameSite=None; Secure |
+| Overlap double-book | `findOne({carId, startDate:{$lte:newEnd}, endDate:{$gte:newStart}})` → 409 |
+| Owner spoof | `ownerEmail = req.user.email` |
+| ID crash | `isValidObjectId` |
+| Regex inject | `escapeRegex` |
+| CORS | allow-list `[localhost:5173,5174, vercel]` + `credentials:true` + `optionsSuccessStatus` |
+| Rate | 200/15m |
 
 ---
 
-## ☁️ Deployment
-
-This server is **Vercel-ready** (see `vercel.json`).
-
-### Deploy to Vercel
-
-1. Push the repo to GitHub.
-2. Import into [Vercel](https://vercel.com/new).
-3. Add every env var from `.env` in **Settings → Environment Variables**.
-4. Deploy 🚀
-
-### `vercel.json`
+## ☁️ Deploy (Vercel)
 
 ```json
-{
-  "version": 2,
-  "builds": [{ "src": "index.js", "use": "@vercel/node" }],
-  "routes": [{ "src": "/(.*)", "dest": "index.js" }]
-}
+// vercel.json
+{ "version":2, "builds":[{"src":"index.js","use":"@vercel/node"}], "routes":[{"src":"/(.*)","dest":"index.js"}] }
 ```
 
-### Production checklist
-
-- [ ] `NODE_ENV=production`
-- [ ] `JWT_SECRET` is a long random value
-- [ ] MongoDB Atlas IP allow-list includes `0.0.0.0/0` *(or Vercel's NAT range)*
-- [ ] CORS origin list includes your production frontend URL
-- [ ] HTTPS-only cookies verified in DevTools → Application → Cookies
+1. Push to GitHub
+2. Import Vercel → add env vars → Deploy
+3. Production checklist: `JWT_SECRET` random, Atlas `0.0.0.0/0`, CORS, cookies `Secure`
 
 ---
 
-## 🗺️ Roadmap
+## 📜 Scripts
 
-- [ ] Pagination for `/cars`
-- [ ] Index on `cars.carName` for faster regex search
-- [ ] Rate limiting (`express-rate-limit`)
-- [ ] Request validation with `zod` or `joi`
-- [ ] Soft-delete for cars & bookings
-- [ ] Refresh-token rotation
-- [ ] File upload (multer + S3) for car images
-- [ ] Email notifications (SendGrid / Resend)
-- [ ] Docker support
+| `npm start` | node |
+| `npm run dev` | nodemon |
+| `npm test` | jest (sample `tests/api.test.js`) |
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & License
 
-1. Fork the repo
-2. Create a branch: `git checkout -b feature/awesome`
-3. Commit: `git commit -m "feat: add awesome feature"`
-4. Push: `git push origin feature/awesome`
-5. Open a PR
+PR welcome. **MIT** — by [Fahim Rana](https://github.com/fahim3101)
 
----
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
-## 📬 Contact
-
-Have questions, feedback, or partnership ideas? Reach out:
-
-- 📱 **Phone / WhatsApp:** [+8801818858015](tel:+8801818858015)
-- 📧 **Email:** [fahimrana3101@gmail.com](mailto:fahimrana3101@gmail.com)
-
-## 🌐 Follow Me
-
-Stay connected and follow my journey:
-
-- 💼 **LinkedIn:** [linkedin.com/in/fahim-rana](https://www.linkedin.com/in/fahim-rana/)
-- 📘 **Facebook:** [facebook.com/fahim2855](https://www.facebook.com/fahim2855)
-- 📸 **Instagram:** [instagram.com/_fahiiiim_](https://www.instagram.com/_fahiiiim_/)
-
----
-
-**Made with ❤️ by [Fahim Rana](https://github.com/fahim3101)**
+📧 fahimrana3101@gmail.com | 📱 +8801818858015 | [LinkedIn](https://www.linkedin.com/in/fahim-rana/)
